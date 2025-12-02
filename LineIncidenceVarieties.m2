@@ -214,7 +214,7 @@ triangleDecomposition = (G, I) -> (
         idealHash#labelComps = sum(apply(labelComps, i -> if i_0 == 0 then concurrentLinesIdeal(i_1, R) else coplanarLinesIdeal(i_1, R))) + I;
     );
 
-    filter out keys using some plabic graph rules
+    --filter out keys using some plabic graph rules
     goodKeys := for key in keys(idealHash) list(
 
         maxLength := max apply(key, i -> #i_1);
@@ -298,13 +298,42 @@ affineLineMatrix = i -> matrix{{1, 0, a_(i, 1, 1), a_(i, 1, 2)}, {0, 1, a_(i, 2,
 
 
 -- make the equation corresponding to the edge ij in affine coordinates
-edgeEqn = (i, j) -> det(plMatrix(i)||plMatrix(j))
+affineEdgeEqn = (i, j) -> det(affineLineMatrix(i)||affineLineMatrix(j))
 
 
 -- make the line incidence ideal in affine coordinates
-affineEdgeIdeal = E -> ideal apply(E, i -> edgeEqn(i_0, i_1))
+affineIncidenceIdeal = method(Options => {})
+affineIncidenceIdeal (Number, List) := Ideal -> (n, E) -> (
+
+    R := affineIncidenceRing n;
+    
+    return ideal apply(E, i -> affineEdgeEqn(i_0, i_1))
+)
+
+affineIncidenceIdeal Graph := Ideal -> G -> affineIncidenceIdeal(#vertices(G), edges(G) / toList / sort)
 
 
+------------------------------------------------------------------
+-- Spanning tree coordinates for line incidence ideals
+------------------------------------------------------------------
 
+-- make the line incidence ideal in the spanning tree coordinates using the spanning tree T
+-- note that this method does not verify that T is a spanning tree and will error or return unpredictable results if it is not
+spanningTreeIncidenceIdeal = method(Options => {})
+spanningTreeIncidenceIdeal (Graph, Graph) := Ideal => opts -> (G, T) -> (
 
+    I := affineIncidenceIdeal(G); 
+    R := ring I;
+    V := sort vertices(G);
+    E' := {{V_0, V_0}}|(edges(T) / toList / sort);    
 
+    -- this makes the ring of spanning tree coords and our linear change of coordinates
+    S := QQ[for e in E' list t_(e,1,1)..t_(e, 2, 2)];
+    ims := flatten flatten for e in E' list(
+        for i from 1 to 2 list for j from 1 to 2 list if e_0 == e_1 then a_(e_0, i, j) else a_(e_0, i, j) - a_(e_1, i, j)
+    );
+    L := map(R, S, ims);
+    invL := inverse L;
+
+    return invL(I);
+)
