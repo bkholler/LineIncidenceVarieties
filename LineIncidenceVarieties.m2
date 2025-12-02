@@ -1,20 +1,10 @@
 needsPackage "Graphs"
 needsPackage "NumericalAlgebraicGeometry"
 
--- make a graph whose vertices correspond to triangles in T 
--- and whose edges correspond to pairs of triangles which intersect in a line
-triangleGraph = T -> (
 
-    E := for S in subsets(#T, 2) list if #intersect(set T_(S_0), set T_(S_1)) == 2 then S else continue;
-    return graph(toList(0..#T-1), E)
-)
-
--- find all the triangles in G
-triangles = G -> (
-    
-    n := #vertices(G);
-    return select(subsets(toList(1..n), 3), L -> #edges(inducedSubgraph(G, L)) == 3)
-);
+------------------------------------------------------------------
+-- Pluecker coordinates for line incidence ideals
+------------------------------------------------------------------
 
 -- make the ring with n sets of variables a_(i,j), b_(i, j), ...
 plProductRing = {GradeRing => true, CoefficientRing => QQ} >> opts -> n -> (
@@ -112,6 +102,132 @@ lineIncidenceIdeal = G -> (
 )
 
 
+------------------------------------------------------------------
+-- Useful graph functions and rigidity
+------------------------------------------------------------------
+
+-- make a graph whose vertices correspond to triangles in T 
+-- and whose edges correspond to pairs of triangles which intersect in a line
+triangleGraph = T -> (
+
+    E := for S in subsets(#T, 2) list if #intersect(set T_(S_0), set T_(S_1)) == 2 then S else continue;
+    return graph(toList(0..#T-1), E)
+)
+
+-- find all the triangles in G
+triangles = G -> (
+    
+    n := #vertices(G);
+    return select(subsets(toList(1..n), 3), L -> #edges(inducedSubgraph(G, L)) == 3)
+);
+
+
+
+-- check if a graph is (k, l)-sparse
+-- note this method is not optimal and just brute-force checks every induced subgraph
+isSparse = (k, l, G) -> (
+
+    V := vertices(G);
+
+    for A in subsets(V) do(
+
+        if #A <= 2 then continue;
+
+        n' := #A;
+        G' := inducedSubgraph(G, A);
+        if #edges(G') <= k*n' - l then continue else return false;
+    );
+
+    return true;
+)
+
+-- find the indices of the edge set of a graph in the set of all possible edges
+graphToInd = E -> (
+
+    allSubs := subsets(toList(1..n), 2);
+    inds := E / (e -> position(allSubs, i -> i == e));
+    return sort(inds)
+)
+
+-- check if a graph contains a K4
+containsK4 = (n, E) -> (
+
+    G := graph(toList(1..n), E);
+    for A in subsets(toList(1..n), 4) do if #edges(inducedSubgraph(G, A)) == 6 then return true;
+
+    return false
+)
+
+
+-- compute the jacobian of the map \delta_G in Section 5 which parametrizes the Cayler-Menger variety
+-- this is the matrix which yields a representation of the rigidity matroid
+rigidityJacobian = n -> (
+
+    S := QQ[x_1..x_n, y_1..y_n];
+    images = matrix {for e in subsets(toList(1..n), 2) list(
+
+        (i, j) := toSequence e;
+        
+        (x_i - x_j)^2 + (y_i - y_j)^2
+    )};
+
+    return jacobian images
+)
+
+-- compute the rigidity rank by evaluating the jacobian at many points over a finite field
+rigidityRank = method(Options => {SpecializeJacobian => true, Trials => 100, Coefficients => ZZ/32003});
+rigidityRank (Number, List) := Number => opts -> (n, E) -> (
+
+    J := rigidityJacobian(n);
+    allSubs := subsets(toList(1..n), 2);
+    inds := E / (e -> position(allSubs, i -> i == sort e));
+    JG = J_inds;
+
+    if not opts.SpecializeJacobian then return rank JG;
+
+    ranks = apply(opts.Trials, t -> rank sub(JG, apply(gens ring JG, x -> x => random(opts.Coefficients))));
+    return max ranks
+)
+
+rigidityRank Graph := Number => opts -> G -> rigidityRank(#vertices(G), apply(edges(G), toList), SpecializeJacobian => opts.SpecializeJacobian, Trials => opts.Trials, Coefficients => opts.Coefficients)
+
+
+------------------------------------------------------------------
+-- Functions for decomposition and primality testing
+------------------------------------------------------------------
+
+-- compute the minimal primes of a triangulation of an n-gon as described in Theorem 4.10
+triangleDecomposition = (G, I) -> (
+
+    triangles := select(subsets(toList(1..n), 3), L -> #edges(inducedSubgraph(G, L)) == 3);
+    T := triangleGraph(triangles);
+
+    -- make a hashtable which will store our components
+    idealHash := new MutableHashTable;
+
+    -- loop through every coloring of our triangle graph to build our components
+    for A in subsets(vertices(T)) list(
+        B := select(vertices(T), i -> not member(i, A));
+        H := deleteEdges(T, flatten for a in A list for b in B list {a, b});
+        connComps := apply(connectedComponents(H), i -> unique flatten triangles_i);
+        labelComps := apply(connectedComponents(H), connComps, (i, j) -> {if member(i_0, A) then 0 else 1, j});
+        idealHash#labelComps = sum(apply(labelComps, i -> if i_0 == 0 then concurrentLinesIdeal(i_1, R) else coplanarLinesIdeal(i_1, R))) + I;
+    );
+
+    filter out keys using some plabic graph rules
+    goodKeys := for key in keys(idealHash) list(
+
+        maxLength := max apply(key, i -> #i_1);
+        
+        if maxLength == n and #key > 1 then continue else key
+    );
+
+    return idealHash;
+
+    return hashTable apply(goodKeys, i -> {i, idealHash#i})
+)
+
+
 -- check if the polynomial g is a zero divisor modulo I
 isZeroDivisor = (g, I) -> (
 
@@ -120,6 +236,7 @@ isZeroDivisor = (g, I) -> (
     M := sub(matrix({{g}}), S);
     return ker(M) != 0
 )
+
 
 -- check if an ideal is prime using Proposition 23 of https://arxiv.org/pdf/math/0301255
 -- this involves elimination but is often faster than the default isPrime in M2
@@ -167,104 +284,27 @@ primeDescent = J -> (
     return isPrime last idealList; 
 );
 
--- compute the jacobian of the map \delta_G in Section 5 which parametrizes the Cayler-Menger variety
--- this is the matrix which yields a representation of the rigidity matroid
-rigidityJacobian = n -> (
 
-    S := QQ[x_1..x_n, y_1..y_n];
-    images = matrix {for e in subsets(toList(1..n), 2) list(
+------------------------------------------------------------------
+-- Affine coordinates for line incidence ideals
+------------------------------------------------------------------
 
-        (i, j) := toSequence e;
-        
-        (x_i - x_j)^2 + (y_i - y_j)^2
-    )};
-
-    return jacobian images
-)
-
--- compute the rigidity rank by evaluating the jacobian at many points over a finite field
-rigidityRank = method(Options => {SpecializeJacobian => true, Trials => 100, Coefficients => ZZ/32003});
-rigidityRank (Number, List) := Number => opts -> (n, E) -> (
-
-    J := rigidityJacobian(n);
-    allSubs := subsets(toList(1..n), 2);
-    inds := E / (e -> position(allSubs, i -> i == sort e));
-    JG = J_inds;
-
-    if not opts.SpecializeJacobian then return rank JG;
-
-    ranks = apply(opts.Trials, t -> rank sub(JG, apply(gens ring JG, x -> x => random(opts.Coefficients))));
-    return max ranks
-)
-
-rigidityRank Graph := Number => opts -> G -> rigidityRank(#vertices(G), apply(edges(G), toList), SpecializeJacobian => opts.SpecializeJacobian, Trials => opts.Trials, Coefficients => opts.Coefficients)
+-- make the ring of affine coordinates which correspond to setting p_(1,2) = 1
+affineIncidenceRing = n -> QQ[a_(1,1,1)..a_(n, 2, 2)]
 
 
--- compute the minimal primes of a triangulation of an n-gon as described in Theorem 4.10
-triangleDecomposition = (G, I) -> (
+-- make the 2x4 matrix which encodes a line in our affine coordinate system
+affineLineMatrix = i -> matrix{{1, 0, a_(i, 1, 1), a_(i, 1, 2)}, {0, 1, a_(i, 2, 1), a_(i, 2, 2)}}
 
-    triangles := select(subsets(toList(1..n), 3), L -> #edges(inducedSubgraph(G, L)) == 3);
-    T := triangleGraph(triangles);
 
-    -- make a hashtable which will store our components
-    idealHash := new MutableHashTable;
+-- make the equation corresponding to the edge ij in affine coordinates
+edgeEqn = (i, j) -> det(plMatrix(i)||plMatrix(j))
 
-    -- loop through every coloring of our triangle graph to build our components
-    for A in subsets(vertices(T)) list(
-        B := select(vertices(T), i -> not member(i, A));
-        H := deleteEdges(T, flatten for a in A list for b in B list {a, b});
-        connComps := apply(connectedComponents(H), i -> unique flatten triangles_i);
-        labelComps := apply(connectedComponents(H), connComps, (i, j) -> {if member(i_0, A) then 0 else 1, j});
-        idealHash#labelComps = sum(apply(labelComps, i -> if i_0 == 0 then concurrentLinesIdeal(i_1, R) else coplanarLinesIdeal(i_1, R))) + I;
-    );
 
-    filter out keys using some plabic graph rules
-    goodKeys := for key in keys(idealHash) list(
-
-        maxLength := max apply(key, i -> #i_1);
-        
-        if maxLength == n and #key > 1 then continue else key
-    );
-
-    return idealHash;
-
-    return hashTable apply(goodKeys, i -> {i, idealHash#i})
-)
+-- make the line incidence ideal in affine coordinates
+affineEdgeIdeal = E -> ideal apply(E, i -> edgeEqn(i_0, i_1))
 
 
 
--- check if a graph is (k, l)-sparse
--- note this method is not optimal and just brute-force checks every induced subgraph
-isSparse = (k, l, G) -> (
 
-    V := vertices(G);
-
-    for A in subsets(V) do(
-
-        if #A <= 2 then continue;
-
-        n' := #A;
-        G' := inducedSubgraph(G, A);
-        if #edges(G') <= k*n' - l then continue else return false;
-    );
-
-    return true;
-)
-
--- find the indices of the edge set of a graph in the set of all possible edges
-graphToInd = E -> (
-
-    allSubs := subsets(toList(1..n), 2);
-    inds := E / (e -> position(allSubs, i -> i == e));
-    return sort(inds)
-)
-
--- check if a graph contains a K4
-containsK4 = (n, E) -> (
-
-    G := graph(toList(1..n), E);
-    for A in subsets(toList(1..n), 4) do if #edges(inducedSubgraph(G, A)) == 6 then return true;
-
-    return false
-)
 
