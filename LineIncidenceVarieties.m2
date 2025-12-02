@@ -337,3 +337,13 @@ spanningTreeIncidenceIdeal (Graph, Graph) := Ideal => opts -> (G, T) -> (
 
     return invL(I);
 )
+
+
+spanningTreeIncidenceIdeal Graph := Ideal => opts -> G -> (
+
+    if not isConnected(G) then error "G must be connected";
+
+    T := spanningForest(G);
+
+    return spanningTreeIncidenceIdeal(G, T)
+)
