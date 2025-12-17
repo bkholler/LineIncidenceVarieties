@@ -104,16 +104,3 @@ function test_reality_conjecture(n::Int, E::Vector{Vector{Int64}}, trials::Int, 
         return all(i -> i[1] == 1, values(results))
     end
 end
-
-# load graphs and make vertex set
-# then make variables for the incidence ideal in the affine patch of plucker coordinates
-n = 4
-V = 1:n
-@var a[1:n, 1:2, 1:2]
-
-
-# 
-E = [[1, 2], [2, 3], [3, 4]]
-parse_multidegree(n, E)
-I = affine_incidence_ideal(E)
-test_reality_conjecture(n, E, 2)
