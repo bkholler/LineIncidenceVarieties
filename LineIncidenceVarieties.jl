@@ -465,6 +465,7 @@ end
 #
 function parse_multidegree(n, E)
 
+    @var t[1:n]
     mld = multidegree(n, E)
     (M, c) = exponents_coefficients(mld, t)
 
@@ -472,7 +473,8 @@ function parse_multidegree(n, E)
 
     for i in 1:size(M, 2)
 
-        result[M[:, i]] = c[i]
+        u = [5 for i in 1:n] - M[:, i]
+        result[u] = c[i]
     end
 
     return result
