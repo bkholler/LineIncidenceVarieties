@@ -450,3 +450,30 @@ function missing_solutions(n::Int, E::Vector{Vector{Int64}}, W::NumericalIrreduc
 
     return new_deg - deg
 end
+
+
+# compute the multidegree of a CI incidence variety
+function multidegree(n, E)
+
+    @var t[1:n]
+
+    mld = 2^n*prod([t[i] for i in 1:n])*prod([t[e[1]] + t[e[2]] for e in E])
+    return mld
+end
+
+
+#
+function parse_multidegree(n, E)
+
+    mld = multidegree(n, E)
+    (M, c) = exponents_coefficients(mld, t)
+
+    result = Dict()
+
+    for i in 1:size(M, 2)
+
+        result[M[:, i]] = c[i]
+    end
+
+    return result
+end
